@@ -76,7 +76,7 @@ class DataObjectManager(Manager):
             self.replicate(obj, **options)
 
 
-    def create(self, path, resource=None, **options):
+    def create(self, path, resource=None, force=False, **options):
         options[kw.DATA_TYPE_KW] = 'generic'
 
         if resource:
@@ -87,6 +87,9 @@ class DataObjectManager(Manager):
                 options[kw.DEST_RESC_NAME_KW] = self.sess.default_resource
             except AttributeError:
                 pass
+
+        if force:
+            options[kw.FORCE_FLAG_KW] = ''
 
         message_body = FileOpenRequest(
             objPath=path,
