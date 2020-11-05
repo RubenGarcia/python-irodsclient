@@ -36,6 +36,7 @@ class Query(object):
         self._limit = -1
         self._offset = 0
         self._continue_index = 0
+        self._keywords = {}
 
         for arg in args:
             if isinstance(arg, type) and issubclass(arg, Model):
@@ -54,6 +55,12 @@ class Query(object):
         new_q._limit = self._limit
         new_q._offset = self._offset
         new_q._continue_index = self._continue_index
+        new_q._keywords = self._keywords
+        return new_q
+
+    def add_keyword(self, keyword, value = ''):
+        new_q = self._clone()
+        new_q._keywords[keyword] = value
         return new_q
 
     def filter(self, *criteria):
@@ -63,7 +70,7 @@ class Query(object):
 
     def order_by(self, column, order='asc'):
         new_q = self._clone()
-        del new_q.columns[column]
+        new_q.columns.pop(column,None)
         if order == 'asc':
             new_q.columns[column] = query_number['ORDER_BY']
         elif order == 'desc':
@@ -138,6 +145,8 @@ class Query(object):
             for criterion in self.criteria
             if isinstance(criterion.query_key, Keyword)
         ])
+        for key in self._keywords:
+            dct[ key ] = self._keywords[key]
         return StringStringMap(dct)
 
     def _message(self):
@@ -184,15 +193,20 @@ class Query(object):
 
     def get_batches(self):
         result_set = self.execute()
-        yield result_set
 
-        while result_set.continue_index > 0:
-            try:
-                result_set = self.continue_index(
-                    result_set.continue_index).execute()
-                yield result_set
-            except CAT_NO_ROWS_FOUND:
-                break
+        try:
+            yield result_set
+
+            while result_set.continue_index > 0:
+                try:
+                    result_set = self.continue_index(
+                        result_set.continue_index).execute()
+                    yield result_set
+                except CAT_NO_ROWS_FOUND:
+                    break
+        except GeneratorExit:
+            if result_set.continue_index > 0:
+                self.continue_index(result_set.continue_index).close()
 
     def get_results(self):
         for result_set in self.get_batches():
@@ -204,6 +218,8 @@ class Query(object):
 
     def one(self):
         results = self.execute()
+        if results.continue_index > 0:
+            self.continue_index(results.continue_index).close()
         if not len(results):
             raise NoResultFound()
         if len(results) > 1:
@@ -213,6 +229,8 @@ class Query(object):
     def first(self):
         query = self.limit(1)
         results = query.execute()
+        if results.continue_index > 0:
+            query.continue_index(results.continue_index).close()
         if not len(results):
             return None
         else:
@@ -279,7 +297,7 @@ class SpecificQuery(object):
             conditions = StringStringMap({})
 
         sql_args = {}
-        for i, arg in enumerate(self._args[:10]):
+        for i, arg in enumerate(self._args[:10], start=1):
             sql_args['arg{}'.format(i)] = arg
 
         message_body = SpecificQueryRequest(sql=target,
